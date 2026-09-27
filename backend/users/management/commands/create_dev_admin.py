@@ -1,59 +1,75 @@
-"""
-Management command to create the development admin account.
+import os
 
-⚠️  DEVELOPMENT ONLY - Change credentials before production deployment!
-"""
+from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
-from django.contrib.auth.models import User
 from users.models import UserProfile
 
 
 class Command(BaseCommand):
-    help = (
-        'Create development admin account.\n'
-        '⚠️  DEVELOPMENT ONLY. Change credentials before production!'
-    )
+    help = "Create the initial admin user if it does not already exist."
 
     def add_arguments(self, parser):
-        parser.add_argument('--username', default='admin')
-        parser.add_argument('--password', default='Function@2026')
-        parser.add_argument('--email', default='admin@thirumahal.local')
-        parser.add_argument('--full-name', default='Admin User')
+        parser.add_argument("--username", default=os.getenv("ADMIN_USERNAME", "admin"))
+        parser.add_argument("--password", default=os.getenv("ADMIN_PASSWORD"))
+        parser.add_argument(
+            "--email",
+            default=os.getenv("ADMIN_EMAIL", "admin@thirukumarankumaranmahal.com"),
+        )
+        parser.add_argument(
+            "--full-name",
+            default=os.getenv("ADMIN_FULL_NAME", "Admin User"),
+        )
 
     def handle(self, *args, **options):
-        username = options['username']
-        password = options['password']
-        email = options['email']
-        full_name = options['full_name']
+        User = get_user_model()
 
-        if User.objects.filter(username=username).exists():
-            user = User.objects.get(username=username)
-            user.set_password(password)
-            user.email = email
-            user.save()
-            self.stdout.write(f'Updated existing user: {username}')
+        username = options["username"]
+        password = options["password"]
+        email = options["email"]
+        full_name = options["full_name"].strip()
+
+        if not password:
+            self.stdout.write(
+                self.style.ERROR(
+                    "ADMIN_PASSWORD environment variable is not set. "
+                    "Admin user was not created."
+                )
+            )
+            return
+
+        user = User.objects.filter(username=username).first()
+
+        if user:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Admin user '{username}' already exists. "
+                    "Password was NOT changed."
+                )
+            )
         else:
+            name_parts = full_name.split()
+
             user = User.objects.create_superuser(
                 username=username,
                 email=email,
                 password=password,
-                first_name=full_name.split()[0],
-                last_name=' '.join(full_name.split()[1:]) if len(full_name.split()) > 1 else '',
-            )
-            self.stdout.write(
-                self.style.SUCCESS(f'Created admin user: {username}')
+                first_name=name_parts[0] if name_parts else "Admin",
+                last_name=" ".join(name_parts[1:]) if len(name_parts) > 1 else "",
             )
 
-        # Ensure profile with admin role
-        profile, created = UserProfile.objects.get_or_create(user=user)
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Created admin user: {username}"
+                )
+            )
+
+        profile, _ = UserProfile.objects.get_or_create(user=user)
         profile.role = UserProfile.ROLE_ADMIN
         profile.full_name = full_name
         profile.save()
 
-        self.stdout.write(self.style.SUCCESS(
-            f'\n[SUCCESS] Dev admin ready:\n'
-            f'   Username: {username}\n'
-            f'   Password: {password}\n'
-            f'   Role:     Admin\n\n'
-            f'[WARNING] CHANGE THESE CREDENTIALS BEFORE PRODUCTION DEPLOYMENT!'
-        ))
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Admin profile ready for: {username}"
+            )
+        )
